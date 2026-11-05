@@ -52,6 +52,20 @@ const POWERUP_EVERY = 10;      // líneas entre power-ups
 const FREEZE_MS = 5000;
 const DESTROY_POINTS = 10;     // por bloque destruido (× nivel)
 
+// Habilidades cargables: la barra se llena al limpiar líneas
+const ENERGY_MAX = 100;
+const ENERGY_PER_LINE = 10;
+const SKILLS = {
+  peek: { key: 1, cost: 20 },  // ver las siguientes 5 piezas
+  swap: { key: 2, cost: 30 },  // cambiar la pieza actual por otra estándar
+  slow: { key: 3, cost: 40 },  // ralentizar la caída
+  undo: { key: 4, cost: 50 },  // deshacer la última colocación
+};
+const PEEK_PIECES = 5;         // piezas visibles
+const PEEK_LOCKS = 5;          // colocaciones que dura la vista
+const SLOW_MS = 10000;
+const SLOW_FACTOR = 2;         // la gravedad tarda el doble
+
 const STANDARD_TYPES = [1, 2, 3, 4, 5, 6, 7];
 const SPECIAL_TYPES = [8, 9, 10, 12]; // la 1x1 (11) solo sale como recompensa
 const SINGLE_TYPE = 11;
@@ -76,10 +90,14 @@ const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const energyEl = document.getElementById('energy');
+const energyFill = document.getElementById('energy-fill');
+const skillEls = document.querySelectorAll('[data-skill]');
 
 let held, holdUsed;
 let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let powerPending, freezeLeft;
+let energy, queue, peekCount, slowLeft, undoSnap;
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
 function createBoard() {
@@ -212,6 +230,7 @@ function clearLines(tspin, keepCombo) {
     powerPending = true;
     labels.push('POWER-UP EN CAMINO');
   }
+  energy = Math.min(ENERGY_MAX, energy + cleared * ENERGY_PER_LINE);
   lines += cleared;
   level = Math.floor(lines / 10) + 1;
   dropInterval = Math.max(100, 1000 - (level - 1) * 90);
@@ -341,6 +360,7 @@ function softDrop() {
 }
 
 function lockPiece() {
+  saveUndo();
   const power = POWER_BY_TYPE[current.type];
   if (power) {
     // el power-up no se queda en el tablero: aplica su efecto donde aterriza
@@ -351,7 +371,9 @@ function lockPiece() {
     merge();
     clearLines(tspin);
   }
+  if (peekCount > 0) peekCount--;
   spawn();
+  updateHUD();
 }
 
 function spawn() {
@@ -360,7 +382,8 @@ function spawn() {
     next = makePiece(POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)]);
     powerPending = false;
   } else {
-    next = randomPiece();
+    next = queue.shift();
+    fillQueue();
   }
   holdUsed = false;
   lastMoveRotate = false;
@@ -387,10 +410,67 @@ function holdPiece() {
   drawHold();
 }
 
+// ---- Habilidades ----
+function fillQueue() {
+  while (queue.length < PEEK_PIECES) queue.push(randomPiece());
+}
+
+function saveUndo() {
+  undoSnap = {
+    board: board.map(row => [...row]),
+    score, lines, level, dropInterval, combo, backToBack, held, holdUsed,
+    powerPending, freezeLeft,
+    type: current.type,
+    nextType: next.type,
+    queueTypes: queue.map(p => p.type),
+  };
+}
+
+function useSkill(name) {
+  const skill = SKILLS[name];
+  if (name === 'undo' && !undoSnap) { showEffect(['NADA QUE DESHACER'], 'normal'); return; }
+  if (energy < skill.cost) { showEffect(['ENERGÍA INSUFICIENTE'], 'normal'); return; }
+  energy -= skill.cost;
+  if (name === 'peek') {
+    peekCount = PEEK_LOCKS;
+    drawNext();
+    showEffect(['VISTA x5'], 'big');
+  } else if (name === 'swap') {
+    const types = STANDARD_TYPES.filter(t => t !== current.type);
+    current = makePiece(types[Math.floor(Math.random() * types.length)]);
+    lastMoveRotate = false;
+    if (collide(current.shape, current.x, current.y)) endGame();
+    showEffect(['CAMBIO'], 'big');
+  } else if (name === 'slow') {
+    slowLeft = SLOW_MS;
+    showEffect(['RALENTIZAR'], 'big');
+  } else if (name === 'undo') {
+    const snap = undoSnap;
+    undoSnap = null;
+    board = snap.board;
+    ({ score, lines, level, dropInterval, combo, backToBack, held, holdUsed, powerPending, freezeLeft } = snap);
+    current = makePiece(snap.type);
+    next = makePiece(snap.nextType);
+    queue = snap.queueTypes.map(makePiece);
+    lastMoveRotate = false;
+    dropAccum = 0;
+    drawNext();
+    drawHold();
+    showEffect(['DESHACER'], 'big');
+  }
+  updateHUD();
+}
+
 function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
+  energyFill.style.width = `${(energy / ENERGY_MAX) * 100}%`;
+  energyEl.setAttribute('aria-valuenow', String(energy));
+  for (const li of skillEls) {
+    const skill = SKILLS[li.dataset.skill];
+    li.classList.toggle('ready', energy >= skill.cost && !(li.dataset.skill === 'undo' && !undoSnap));
+  }
 }
 
 function drawBlock(context, x, y, colorIndex, size, alpha) {
@@ -452,7 +532,18 @@ function draw() {
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
 
   drawFreeze();
+  drawSlow();
   drawEffect();
+}
+
+function drawSlow() {
+  if (slowLeft <= 0) return;
+  ctx.save();
+  ctx.fillStyle = '#ffb74d';
+  ctx.font = 'bold 16px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(`🐢 ${(slowLeft / 1000).toFixed(1)}s`, canvas.width / 2, freezeLeft > 0 ? 44 : 22);
+  ctx.restore();
 }
 
 function drawFreeze() {
@@ -468,8 +559,9 @@ function drawFreeze() {
 }
 
 // Dibuja una pieza centrada (por su bounding box) y escalada para que quepa en el canvas
-function drawPreview(context, cnv, shape) {
-  context.clearRect(0, 0, cnv.width, cnv.height);
+function drawPreview(context, cnv, shape, box) {
+  const { x: bx, y: by, w, h } = box || { x: 0, y: 0, w: cnv.width, h: cnv.height };
+  if (!box) context.clearRect(0, 0, cnv.width, cnv.height);
   let minR = Infinity, maxR = -1, minC = Infinity, maxC = -1;
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
@@ -479,15 +571,29 @@ function drawPreview(context, cnv, shape) {
       }
   if (maxR < 0) return;
   const rows = maxR - minR + 1, cols = maxC - minC + 1;
-  const size = Math.min(BLOCK, Math.floor(cnv.width / Math.max(rows, cols, 4)));
-  const offX = (cnv.width / size - cols) / 2 - minC;
-  const offY = (cnv.height / size - rows) / 2 - minR;
+  const size = Math.min(BLOCK, Math.floor(Math.min(w, h) / Math.max(rows, cols, 4)));
+  const offX = bx / size + (w / size - cols) / 2 - minC;
+  const offY = by / size + (h / size - rows) / 2 - minR;
   for (let r = minR; r <= maxR; r++)
     for (let c = minC; c <= maxC; c++)
       drawBlock(context, offX + c, offY + r, shape[r][c], size);
 }
 
 function drawNext() {
+  if (peekCount > 0) {
+    // habilidad "ver siguientes": 5 piezas en una cuadrícula de 3×2
+    nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+    const cell = nextCanvas.width / 3;
+    const upcoming = [next, ...queue].slice(0, PEEK_PIECES);
+    upcoming.forEach((piece, i) => {
+      const box = { x: (i % 3) * cell, y: Math.floor(i / 3) * cell + 10, w: cell, h: cell };
+      drawPreview(nextCtx, nextCanvas, piece.shape, box);
+    });
+    nextCtx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#7aa2f7';
+    nextCtx.lineWidth = 1;
+    nextCtx.strokeRect(1.5, 11.5, cell - 3, cell - 3);
+    return;
+  }
   drawPreview(nextCtx, nextCanvas, next.shape);
 }
 
@@ -528,7 +634,8 @@ function loop(ts) {
   } else {
     dropAccum += dt;
   }
-  if (dropAccum >= dropInterval) {
+  if (slowLeft > 0) slowLeft = Math.max(0, slowLeft - dt);
+  if (dropAccum >= (slowLeft > 0 ? dropInterval * SLOW_FACTOR : dropInterval)) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
@@ -555,11 +662,17 @@ function init() {
   held = null;
   powerPending = false;
   freezeLeft = 0;
+  energy = 0;
+  peekCount = 0;
+  slowLeft = 0;
+  undoSnap = null;
+  queue = [];
   combo = 0;
   backToBack = false;
   lastMoveRotate = false;
   effect = null;
   next = randomPiece();
+  fillQueue();
   spawn();
   updateHUD();
   overlay.classList.add('hidden');
@@ -588,6 +701,10 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       hardDrop();
       break;
+    case 'Digit1': case 'Numpad1': useSkill('peek'); break;
+    case 'Digit2': case 'Numpad2': useSkill('swap'); break;
+    case 'Digit3': case 'Numpad3': useSkill('slow'); break;
+    case 'Digit4': case 'Numpad4': useSkill('undo'); break;
     case 'KeyC':
     case 'ShiftLeft':
     case 'ShiftRight':

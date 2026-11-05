@@ -93,6 +93,10 @@ body {
   padding-top: 4px;
 }
 
+.panel-left {
+  width: 120px;
+}
+
 .panel-section {
   display: flex;
   flex-direction: column;
@@ -256,4 +260,36 @@ kbd {
 
 .theme-toggle[aria-checked="true"] .theme-toggle-track::after {
   transform: translateX(16px);
+}
+
+/* ---- Energía y habilidades ---- */
+.energy {
+  height: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+#energy-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  transition: width 0.2s;
+}
+
+.controls li[data-skill] {
+  opacity: 0.5;
+}
+
+.controls li[data-skill].ready {
+  opacity: 1;
+  color: var(--text);
+}
+
+.cost {
+  margin-left: auto;
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--label);
 }
