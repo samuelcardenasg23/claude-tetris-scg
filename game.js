@@ -13,6 +13,11 @@ const COLORS = [
   '#e57373', // Z - red
   '#90caf9', // J - pale blue
   '#ffb74d', // L - orange
+  '#f06292', // + - pink
+  '#a1887f', // U - brown
+  '#b0bec5', // Y - blue gray
+  '#ff7043', // 1x1 - deep orange
+  '#26a69a', // 3x3 hueca - teal
 ];
 
 const PIECES = [
@@ -24,7 +29,17 @@ const PIECES = [
   [[5,5,0],[0,5,5],[0,0,0]],                  // Z
   [[6,0,0],[6,6,6],[0,0,0]],                  // J
   [[0,0,7],[7,7,7],[0,0,0]],                  // L
+  [[0,8,0],[8,8,8],[0,8,0]],                  // + (pentominó)
+  [[9,0,9],[9,9,9],[0,0,0]],                  // U (pentominó)
+  [[0,10,0,0],[10,10,10,10],[0,0,0,0],[0,0,0,0]], // Y (pentominó)
+  [[11]],                                      // 1x1 (recompensa tras un Tetris)
+  [[12,12,12],[12,0,12],[12,12,12]],          // 3x3 hueca (reto)
 ];
+
+const STANDARD_TYPES = [1, 2, 3, 4, 5, 6, 7];
+const SPECIAL_TYPES = [8, 9, 10, 12]; // la 1x1 (11) solo sale como recompensa
+const SINGLE_TYPE = 11;
+const SPECIAL_CHANCE = 0.08;
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
 const TSPIN_SCORES = [400, 800, 1200, 1600];
@@ -60,7 +75,8 @@ function makePiece(type) {
 }
 
 function randomPiece() {
-  return makePiece(Math.floor(Math.random() * 7) + 1);
+  const pool = Math.random() < SPECIAL_CHANCE ? SPECIAL_TYPES : STANDARD_TYPES;
+  return makePiece(pool[Math.floor(Math.random() * pool.length)]);
 }
 
 function collide(shape, ox, oy) {
@@ -138,11 +154,15 @@ function clearLines(tspin) {
   }
 
   combo++;
+  const labels = [];
   const special = tspin || cleared === 4;
   let points = tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared];
-  const labels = [];
   if (tspin) labels.push(`T-SPIN ${['', 'SINGLE', 'DOUBLE', 'TRIPLE'][cleared]}`);
   else if (cleared === 4) labels.push('TETRIS');
+  if (cleared === 4) {
+    next = makePiece(SINGLE_TYPE); // recompensa: la siguiente pieza es la 1x1
+    labels.push('BONUS 1×1');
+  }
 
   if (special && backToBack) {
     points = Math.floor(points * 1.5);
@@ -332,28 +352,34 @@ function draw() {
   drawEffect();
 }
 
-function drawNext() {
-  const NB = 30;
-  nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-  const shape = next.shape;
-  const offX = Math.floor((4 - shape[0].length) / 2);
-  const offY = Math.floor((4 - shape.length) / 2);
+// Dibuja una pieza centrada (por su bounding box) y escalada para que quepa en el canvas
+function drawPreview(context, cnv, shape) {
+  context.clearRect(0, 0, cnv.width, cnv.height);
+  let minR = Infinity, maxR = -1, minC = Infinity, maxC = -1;
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
-      drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+      if (shape[r][c]) {
+        minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+        minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+      }
+  if (maxR < 0) return;
+  const rows = maxR - minR + 1, cols = maxC - minC + 1;
+  const size = Math.min(BLOCK, Math.floor(cnv.width / Math.max(rows, cols, 4)));
+  const offX = (cnv.width / size - cols) / 2 - minC;
+  const offY = (cnv.height / size - rows) / 2 - minR;
+  for (let r = minR; r <= maxR; r++)
+    for (let c = minC; c <= maxC; c++)
+      drawBlock(context, offX + c, offY + r, shape[r][c], size);
+}
+
+function drawNext() {
+  drawPreview(nextCtx, nextCanvas, next.shape);
 }
 
 function drawHold() {
-  const NB = 30;
-  holdCtx.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
   holdCanvas.classList.toggle('locked', !!holdUsed);
-  if (!held) return;
-  const shape = PIECES[held];
-  const offX = Math.floor((4 - shape[0].length) / 2);
-  const offY = Math.floor((4 - shape.length) / 2);
-  for (let r = 0; r < shape.length; r++)
-    for (let c = 0; c < shape[r].length; c++)
-      drawBlock(holdCtx, offX + c, offY + r, shape[r][c], NB);
+  if (!held) { holdCtx.clearRect(0, 0, holdCanvas.width, holdCanvas.height); return; }
+  drawPreview(holdCtx, holdCanvas, PIECES[held]);
 }
 
 function endGame() {
