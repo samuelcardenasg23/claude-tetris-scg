@@ -1,0 +1,70 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    if: github.actor != 'github-actions[bot]' && github.actor != 'claude[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Asegurar labels de área y prioridad
+        run: |
+          create() { gh label create "$1" --color "$2" --description "$3" --force; }
+          create "area: gameplay"   "1d76db" "Lógica del juego: piezas, colisiones, rotación"
+          create "area: rendering"  "5319e7" "Dibujo en canvas: tablero, ghost, next"
+          create "area: input"      "0e8a16" "Teclado y controles"
+          create "area: ui"         "fbca04" "HTML/CSS, HUD y overlay"
+          create "area: scoring"    "f9d0c4" "Puntaje, líneas, nivel y velocidad"
+          create "priority: high"   "b60205" "Prioridad alta"
+          create "priority: medium" "d93f0b" "Prioridad media"
+          create "priority: low"    "c2e0c6" "Prioridad baja"
+
+      - name: Analizar issue con Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          claude_args: >-
+            --allowedTools "Read,Glob,Grep,Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh search issues:*)"
+          prompt: |
+            Eres el asistente de triage de issues del repositorio ${{ github.repository }} (un Tetris en JavaScript vanilla + canvas).
+            Issue a analizar: #${{ github.event.issue.number }}. Evento: ${{ github.event.action }}.
+
+            Tareas (no modifiques código, no abras PRs):
+
+            1. Lee el issue con `gh issue view ${{ github.event.issue.number }}`. Lee `CLAUDE.md` y el código relevante (`game.js`, `index.html`, `style.css`) para ubicar el problema o la funcionalidad solicitada.
+
+            2. Asigna labels. Usa `gh label list` y elige SOLO entre los labels existentes:
+               - Exactamente 1 de tipo: `bug`, `enhancement`, `documentation` o `question`.
+               - 0 o más de área: `area: gameplay`, `area: rendering`, `area: input`, `area: ui`, `area: scoring`.
+               - Exactamente 1 de prioridad: `priority: high`, `priority: medium` o `priority: low`.
+               - Opcionales: `good first issue`, `accessibility`, y `duplicate` solo si `gh search issues` muestra uno equivalente.
+               Aplícalos con `gh issue edit ${{ github.event.issue.number }} --add-label "..."`.
+               Si el evento es `edited`, quita con `--remove-label` los labels de tipo/área/prioridad que ya no apliquen. No toques otros labels puestos manualmente.
+
+            3. Publica un diagnóstico en español con `gh issue comment ${{ github.event.issue.number }} --edit-last --create-if-none --body "..."` (así se actualiza el comentario previo en vez de duplicarlo). Formato:
+               ## 🤖 Diagnóstico automático
+               - **Resumen**
+               - **Tipo y labels asignados** (justificación breve)
+               - **Causa probable / análisis**
+               - **Archivos y funciones implicados** (ej. `game.js:123`, `tryRotate()`)
+               - **Enfoque de solución sugerido** (pasos)
+               - **Criterios de aceptación / cómo verificar**
+               - **Preguntas abiertas** (solo si falta información)
