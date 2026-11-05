@@ -19,6 +19,24 @@
           <span class="label">HOLD</span>
           <canvas id="hold-canvas" width="120" height="120"></canvas>
         </div>
+
+        <div class="panel-section">
+          <span class="label">MODO</span>
+          <div class="mode-list">
+            <button class="mode-btn active" data-mode="classic" aria-pressed="true">Clásico</button>
+            <button class="mode-btn" data-mode="sprint" aria-pressed="false">Sprint 40</button>
+            <button class="mode-btn" data-mode="survival" aria-pressed="false">Basura</button>
+            <button class="mode-btn" data-mode="fixed" aria-pressed="false">Bloques fijos</button>
+            <button class="mode-btn" data-mode="invisible" aria-pressed="false">Invisibles</button>
+            <button class="mode-btn" data-mode="reverse" aria-pressed="false">Rotación inversa</button>
+          </div>
+        </div>
+
+        <div id="objective-section" class="panel-section" hidden>
+          <span class="label">OBJETIVO</span>
+          <p id="objective-desc" class="objective-desc"></p>
+          <span id="objective-progress" class="objective-progress"></span>
+        </div>
       </aside>
 
       <canvas id="board" width="300" height="600"></canvas>

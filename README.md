@@ -42,6 +42,12 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Pausa** y **Game Over** con opción de reinicio.
+- **Hold**: reserva una pieza (una vez por pieza) para usarla después.
+- **Combos, T-spin, Back-to-Back y Perfect Clear** con bonus de puntuación y efectos visuales/sonoros.
+- **Piezas especiales**: pentominós (`+`, `U`, `Y`), anillo 3×3 hueco y una pieza `1×1` de recompensa tras un Tetris.
+- **Power-ups** cada 10 líneas: bomba, rayo, tinte, gravedad y congelar.
+- **Habilidades cargables** con una barra de energía (ver siguientes 5, cambiar pieza, ralentizar, deshacer).
+- **Modo desafío** con 5 desafíos independientes (ver [Modos de juego](#modos-de-juego)).
 
 ---
 
@@ -84,7 +90,29 @@ Después abre `http://localhost:8000` en el navegador.
 | `↑` o `X` | Rotar la pieza en sentido horario |
 | `↓`       | Soft drop (bajar más rápido)      |
 | `Espacio` | Hard drop (caída instantánea)     |
+| `C` / `Shift` | Hold: reservar / intercambiar pieza |
+| `1` | Habilidad: ver las 5 siguientes piezas (20 de energía) |
+| `2` | Habilidad: cambiar la pieza actual (30) |
+| `3` | Habilidad: ralentizar la caída 10 s (40) |
+| `4` | Habilidad: deshacer la última colocación (50) |
 | `P`       | Pausar / reanudar                 |
+
+La energía sube +10 por línea limpiada. Las habilidades solo están disponibles en el modo Clásico.
+
+---
+
+## Modos de juego
+
+Se eligen en el panel izquierdo (cambiar de modo reinicia la partida). Los desafíos usan reglas puras: sin habilidades, power-ups ni piezas especiales (el hold sí funciona).
+
+| Modo | Objetivo |
+| ---- | -------- |
+| Clásico | Juego libre con todas las mecánicas |
+| Sprint 40 | Limpia 40 líneas en 2 minutos |
+| Basura | Sobrevive 2 minutos mientras sube una fila de basura cada 10 s |
+| Bloques fijos | Despeja el tablero, que empieza con 6 filas pre-colocadas |
+| Invisibles | Las piezas se vuelven invisibles al tocar suelo; limpia 15 líneas |
+| Rotación inversa | Empieza en el nivel 5, donde la rotación gira al revés; limpia 20 líneas |
 
 ---
 
@@ -97,7 +125,7 @@ El juego se compone de tres archivos que cooperan:
 Define la estructura visual:
 
 - Un `<canvas id="board">` de **300 × 600** píxeles donde se renderiza el tablero.
-- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza y la lista de controles.
+- Un panel derecho con `SCORE`, `LINES`, `LEVEL`, energía, vista de la siguiente pieza y la lista de controles, y un panel izquierdo con `HOLD`, el selector de modo y el objetivo del desafío.
 - Un overlay para los estados **PAUSA** y **GAME OVER**.
 
 ### 2. `style.css`
@@ -108,7 +136,7 @@ Aporta el aspecto visual con estética _dark / retro arcade_: fondo oscuro, tipo
 
 Contiene toda la lógica del juego. A grandes rasgos:
 
-- **Modelo del tablero**: una matriz `ROWS × COLS` donde cada celda guarda `0` (vacía) o un índice de color (1–7) que identifica la pieza.
+- **Modelo del tablero**: una matriz `ROWS × COLS` donde cada celda guarda `0` (vacía) o un índice de color que identifica la pieza (1–7 estándar, 8–12 especiales, 13–17 power-ups, 18 comodín, 19 basura).
 - **Piezas**: definidas como matrices cuadradas. Para rotar se calcula la transposición + reverso de filas (`rotateCW`).
 - **Detección de colisiones** (`collide`): comprueba que ninguna celda de la pieza salga del tablero ni se solape con bloques ya fijados.
 - **Wall kicks** (`tryRotate`): si la rotación choca, intenta desplazar la pieza ±1 y ±2 columnas antes de descartar el giro.
