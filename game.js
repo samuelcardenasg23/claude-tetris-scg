@@ -27,6 +27,10 @@ const PIECES = [
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
+const TSPIN_SCORES = [400, 800, 1200, 1600];
+const MAX_COMBO_MULT = 8;
+const PERFECT_CLEAR_BONUS = 2000;
+const EFFECT_MS = 1400;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -43,6 +47,7 @@ const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 
 let held, holdUsed;
+let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
 function createBoard() {
@@ -87,6 +92,7 @@ function tryRotate() {
     if (!collide(rotated, current.x + kick, current.y)) {
       current.shape = rotated;
       current.x += kick;
+      lastMoveRotate = true;
       return;
     }
   }
@@ -99,7 +105,18 @@ function merge() {
         board[current.y + r][current.x + c] = current.shape[r][c];
 }
 
-function clearLines() {
+function isTSpin() {
+  if (current.type !== 3 || !lastMoveRotate) return false;
+  const cx = current.x, cy = current.y;
+  let filled = 0;
+  for (const [dr, dc] of [[0, 0], [0, 2], [2, 0], [2, 2]]) {
+    const x = cx + dc, y = cy + dr;
+    if (x < 0 || x >= COLS || y >= ROWS || (y >= 0 && board[y][x])) filled++;
+  }
+  return filled >= 3;
+}
+
+function clearLines(tspin) {
   let cleared = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
@@ -109,13 +126,91 @@ function clearLines() {
       r++;
     }
   }
-  if (cleared) {
-    lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level;
-    level = Math.floor(lines / 10) + 1;
-    dropInterval = Math.max(100, 1000 - (level - 1) * 90);
-    updateHUD();
+
+  if (!cleared) {
+    combo = 0;
+    if (tspin) {
+      score += TSPIN_SCORES[0] * level;
+      showEffect(['T-SPIN'], 'tspin');
+      updateHUD();
+    }
+    return;
   }
+
+  combo++;
+  const special = tspin || cleared === 4;
+  let points = tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared];
+  const labels = [];
+  if (tspin) labels.push(`T-SPIN ${['', 'SINGLE', 'DOUBLE', 'TRIPLE'][cleared]}`);
+  else if (cleared === 4) labels.push('TETRIS');
+
+  if (special && backToBack) {
+    points = Math.floor(points * 1.5);
+    labels.push('BACK-TO-BACK');
+  }
+  backToBack = special ? true : false;
+
+  const mult = Math.min(combo, MAX_COMBO_MULT);
+  points *= mult;
+  if (combo >= 2) labels.push(`COMBO x${mult}`);
+
+  score += points * level;
+
+  if (board.every(row => row.every(v => v === 0))) {
+    score += PERFECT_CLEAR_BONUS * level;
+    labels.push('PERFECT CLEAR');
+  }
+
+  lines += cleared;
+  level = Math.floor(lines / 10) + 1;
+  dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+  if (labels.length) showEffect(labels, labels.length > 1 || special ? 'big' : 'normal');
+  else playTone([440], 0.08);
+  updateHUD();
+}
+
+// ---- Efectos visuales y sonoros ----
+function showEffect(labels, kind) {
+  effect = { labels, start: performance.now() };
+  const tones = { tspin: [523, 659], big: [523, 659, 784], normal: [440] };
+  playTone(tones[kind] || tones.normal, 0.12);
+}
+
+function playTone(freqs, dur) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    freqs.forEach((f, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const t = audioCtx.currentTime + i * dur;
+      osc.type = 'square';
+      osc.frequency.value = f;
+      gain.gain.setValueAtTime(0.06, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + dur);
+    });
+  } catch (e) {}
+}
+
+function drawEffect() {
+  if (!effect) return;
+  const age = performance.now() - effect.start;
+  if (age > EFFECT_MS) { effect = null; return; }
+  const alpha = 1 - age / EFFECT_MS;
+  const rise = (age / EFFECT_MS) * 30;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 22px system-ui, sans-serif';
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#7aa2f7';
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 6;
+  effect.labels.forEach((text, i) => {
+    ctx.fillText(text, canvas.width / 2, 200 - rise + i * 28);
+  });
+  ctx.restore();
 }
 
 function ghostY() {
@@ -127,6 +222,7 @@ function ghostY() {
 function hardDrop() {
   const gy = ghostY();
   score += (gy - current.y) * 2;
+  if (gy > current.y) lastMoveRotate = false;
   current.y = gy;
   lockPiece();
 }
@@ -134,6 +230,7 @@ function hardDrop() {
 function softDrop() {
   if (!collide(current.shape, current.x, current.y + 1)) {
     current.y++;
+    lastMoveRotate = false;
     score += 1;
     updateHUD();
   } else {
@@ -142,8 +239,9 @@ function softDrop() {
 }
 
 function lockPiece() {
+  const tspin = isTSpin();
   merge();
-  clearLines();
+  clearLines(tspin);
   spawn();
 }
 
@@ -151,6 +249,7 @@ function spawn() {
   current = next;
   next = randomPiece();
   holdUsed = false;
+  lastMoveRotate = false;
   if (collide(current.shape, current.x, current.y)) {
     endGame();
   }
@@ -169,6 +268,7 @@ function holdPiece() {
   }
   held = type;
   holdUsed = true;
+  lastMoveRotate = false;
   dropAccum = 0;
   drawHold();
 }
@@ -228,6 +328,8 @@ function draw() {
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+
+  drawEffect();
 }
 
 function drawNext() {
@@ -284,6 +386,7 @@ function loop(ts) {
     dropAccum = 0;
     if (!collide(current.shape, current.x, current.y + 1)) {
       current.y++;
+      lastMoveRotate = false;
     } else {
       lockPiece();
     }
@@ -304,6 +407,10 @@ function init() {
   dropAccum = 0;
   lastTime = performance.now();
   held = null;
+  combo = 0;
+  backToBack = false;
+  lastMoveRotate = false;
+  effect = null;
   next = randomPiece();
   spawn();
   updateHUD();
@@ -317,10 +424,10 @@ document.addEventListener('keydown', e => {
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
-      if (!collide(current.shape, current.x - 1, current.y)) current.x--;
+      if (!collide(current.shape, current.x - 1, current.y)) { current.x--; lastMoveRotate = false; }
       break;
     case 'ArrowRight':
-      if (!collide(current.shape, current.x + 1, current.y)) current.x++;
+      if (!collide(current.shape, current.x + 1, current.y)) { current.x++; lastMoveRotate = false; }
       break;
     case 'ArrowDown':
       softDrop();
