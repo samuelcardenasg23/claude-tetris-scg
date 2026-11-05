@@ -24,6 +24,7 @@ const COLORS = [
   '#5c6bc0', // 16 gravedad
   '#4fc3f7', // 17 congelar
   '#eceff1', // 18 comodín (resultado del tinte)
+  '#607d8b', // 19 basura (modo desafío)
 ];
 
 const PIECES = [
@@ -47,10 +48,24 @@ const PIECES = [
 const POWER_BY_TYPE = { 13: 'bomb', 14: 'lightning', 15: 'dye', 16: 'gravity', 17: 'freeze' };
 const POWER_TYPES = [13, 14, 15, 16, 17];
 const WILD = 18;
+const GARBAGE = 19;
 const GLYPHS = { 13: '💣', 14: '⚡', 15: '🎨', 16: '⬇', 17: '❄', 18: '★' };
 const POWERUP_EVERY = 10;      // líneas entre power-ups
 const FREEZE_MS = 5000;
 const DESTROY_POINTS = 10;     // por bloque destruido (× nivel)
+
+// ---- Modo desafío ----
+// Cada desafío es independiente y se juega con reglas puras: sin habilidades,
+// power-ups, piezas especiales ni recompensa 1x1 (el hold sí está activo).
+const CHALLENGES = {
+  sprint:    { desc: 'Limpia 40 líneas en 2 minutos', goalLines: 40, timeLimit: 120000 },
+  survival:  { desc: 'Sobrevive 2 minutos: sube una fila de basura cada 10 s', surviveMs: 120000, garbageMs: 10000 },
+  fixed:     { desc: 'Despeja todos los bloques pre-colocados', junkRows: 6 },
+  invisible: { desc: 'Las piezas se vuelven invisibles al tocar suelo. Limpia 15 líneas', goalLines: 15 },
+  reverse:   { desc: 'Desde el nivel 5 la rotación gira al revés. Limpia 20 líneas', goalLines: 20, startLevel: 5 },
+};
+const REVERSE_FROM_LEVEL = 5;
+const REVEAL_MS = 500;         // cuánto se ve el tablero tras cada pieza en "invisibles"
 
 // Habilidades cargables: la barra se llena al limpiar líneas
 const ENERGY_MAX = 100;
@@ -93,11 +108,17 @@ const restartBtn = document.getElementById('restart-btn');
 const energyEl = document.getElementById('energy');
 const energyFill = document.getElementById('energy-fill');
 const skillEls = document.querySelectorAll('[data-skill]');
+const modeBtns = document.querySelectorAll('[data-mode]');
+const objectiveSection = document.getElementById('objective-section');
+const objectiveDesc = document.getElementById('objective-desc');
+const objectiveProgress = document.getElementById('objective-progress');
 
 let held, holdUsed;
 let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let powerPending, freezeLeft;
 let energy, queue, peekCount, slowLeft, undoSnap;
+let mode = 'classic';
+let levelBase, timeLeft, elapsed, garbageAccum, revealUntil, revealAll;
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
 function createBoard() {
@@ -109,8 +130,16 @@ function makePiece(type) {
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
 }
 
+function isChallenge() {
+  return mode !== 'classic';
+}
+
+function intervalFor(lvl) {
+  return Math.max(100, 1000 - (lvl - 1) * 90);
+}
+
 function randomPiece() {
-  const pool = Math.random() < SPECIAL_CHANCE ? SPECIAL_TYPES : STANDARD_TYPES;
+  const pool = !isChallenge() && Math.random() < SPECIAL_CHANCE ? SPECIAL_TYPES : STANDARD_TYPES;
   return makePiece(pool[Math.floor(Math.random() * pool.length)]);
 }
 
@@ -136,8 +165,16 @@ function rotateCW(shape) {
   return result;
 }
 
+function rotateCCW(shape) {
+  return rotateCW(rotateCW(rotateCW(shape)));
+}
+
+function reverseRotation() {
+  return mode === 'reverse' && level >= REVERSE_FROM_LEVEL;
+}
+
 function tryRotate() {
-  const rotated = rotateCW(current.shape);
+  const rotated = reverseRotation() ? rotateCCW(current.shape) : rotateCW(current.shape);
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collide(rotated, current.x + kick, current.y)) {
@@ -204,7 +241,7 @@ function clearLines(tspin, keepCombo) {
   let points = tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared];
   if (tspin) labels.push(`T-SPIN ${['', 'SINGLE', 'DOUBLE', 'TRIPLE'][cleared]}`);
   else if (cleared === 4) labels.push('TETRIS');
-  if (cleared === 4) {
+  if (cleared === 4 && !isChallenge()) {
     next = makePiece(SINGLE_TYPE); // recompensa: la siguiente pieza es la 1x1
     labels.push('BONUS 1×1');
   }
@@ -226,17 +263,18 @@ function clearLines(tspin, keepCombo) {
     labels.push('PERFECT CLEAR');
   }
 
-  if (Math.floor((lines + cleared) / POWERUP_EVERY) > Math.floor(lines / POWERUP_EVERY)) {
+  if (!isChallenge() && Math.floor((lines + cleared) / POWERUP_EVERY) > Math.floor(lines / POWERUP_EVERY)) {
     powerPending = true;
     labels.push('POWER-UP EN CAMINO');
   }
-  energy = Math.min(ENERGY_MAX, energy + cleared * ENERGY_PER_LINE);
+  if (!isChallenge()) energy = Math.min(ENERGY_MAX, energy + cleared * ENERGY_PER_LINE);
   lines += cleared;
-  level = Math.floor(lines / 10) + 1;
-  dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+  level = Math.floor(lines / 10) + 1 + levelBase;
+  dropInterval = intervalFor(level);
   if (labels.length) showEffect(labels, labels.length > 1 || special ? 'big' : 'normal');
   else playTone([440], 0.08);
   updateHUD();
+  checkObjective();
 }
 
 // ---- Power-ups ----
@@ -372,6 +410,8 @@ function lockPiece() {
     clearLines(tspin);
   }
   if (peekCount > 0) peekCount--;
+  revealUntil = performance.now() + REVEAL_MS;
+  if (gameOver) return; // el último clearLines pudo ganar la partida
   spawn();
   updateHUD();
 }
@@ -427,6 +467,7 @@ function saveUndo() {
 }
 
 function useSkill(name) {
+  if (isChallenge()) { showEffect(['SOLO EN MODO CLÁSICO'], 'normal'); return; }
   const skill = SKILLS[name];
   if (name === 'undo' && !undoSnap) { showEffect(['NADA QUE DESHACER'], 'normal'); return; }
   if (energy < skill.cost) { showEffect(['ENERGÍA INSUFICIENTE'], 'normal'); return; }
@@ -461,10 +502,92 @@ function useSkill(name) {
   updateHUD();
 }
 
+// ---- Lógica de desafíos ----
+function formatTime(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function junkBoard(rows) {
+  const b = createBoard();
+  for (let r = ROWS - rows; r < ROWS; r++) {
+    const holes = new Set();
+    const holeCount = 1 + Math.floor(Math.random() * 3);
+    while (holes.size < holeCount) holes.add(Math.floor(Math.random() * COLS));
+    for (let c = 0; c < COLS; c++)
+      b[r][c] = holes.has(c) ? 0 : STANDARD_TYPES[Math.floor(Math.random() * STANDARD_TYPES.length)];
+  }
+  return b;
+}
+
+function addGarbage() {
+  if (board[0].some(v => v)) { endGame(); return; }
+  board.shift();
+  const hole = Math.floor(Math.random() * COLS);
+  board.push(Array.from({ length: COLS }, (_, c) => (c === hole ? 0 : GARBAGE)));
+  if (collide(current.shape, current.x, current.y)) {
+    current.y--;
+    if (collide(current.shape, current.x, current.y)) endGame();
+  }
+}
+
+function checkObjective() {
+  const cfg = CHALLENGES[mode];
+  if (!cfg || gameOver) return;
+  if (cfg.goalLines && lines >= cfg.goalLines) endGame('¡VICTORIA!', true);
+  else if (cfg.junkRows && board.every(row => row.every(v => !v))) endGame('¡VICTORIA!', true);
+}
+
+function tickChallenge(dt) {
+  const cfg = CHALLENGES[mode];
+  if (!cfg) return;
+  elapsed += dt;
+  if (cfg.timeLimit || cfg.surviveMs) {
+    timeLeft = Math.max(0, timeLeft - dt);
+    if (timeLeft === 0) {
+      if (cfg.surviveMs) endGame('¡VICTORIA!', true);
+      else endGame('TIEMPO AGOTADO');
+      return;
+    }
+  }
+  if (cfg.garbageMs) {
+    garbageAccum += dt;
+    while (garbageAccum >= cfg.garbageMs && !gameOver) {
+      garbageAccum -= cfg.garbageMs;
+      addGarbage();
+    }
+  }
+}
+
+function updateObjective() {
+  const cfg = CHALLENGES[mode];
+  objectiveSection.hidden = !cfg;
+  if (!cfg) return;
+  objectiveDesc.textContent = cfg.desc;
+  let text = '';
+  if (mode === 'sprint') text = `${lines}/${cfg.goalLines} · ${formatTime(timeLeft)}`;
+  else if (mode === 'survival') text = `${formatTime(timeLeft)} · basura en ${Math.ceil((cfg.garbageMs - garbageAccum) / 1000)}s`;
+  else if (mode === 'fixed') text = `${board.flat().filter(v => v).length} bloques`;
+  else if (mode === 'invisible') text = `${lines}/${cfg.goalLines} líneas`;
+  else if (mode === 'reverse') text = `${lines}/${cfg.goalLines} · ${reverseRotation() ? '↺ invertida' : '↻ normal'}`;
+  if (objectiveProgress.textContent !== text) objectiveProgress.textContent = text;
+}
+
+function setMode(id) {
+  mode = id;
+  for (const btn of modeBtns) {
+    const active = btn.dataset.mode === id;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  init();
+}
+
 function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
+  updateObjective();
   energyFill.style.width = `${(energy / ENERGY_MAX) * 100}%`;
   energyEl.setAttribute('aria-valuenow', String(energy));
   for (const li of skillEls) {
@@ -515,9 +638,14 @@ function draw() {
   drawGrid();
 
   // board
-  for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+  // en "invisibles" el tablero solo se ve un instante tras colocar cada pieza
+  const boardAlpha = mode === 'invisible' && !revealAll
+    ? Math.max(0, Math.min(1, (revealUntil - performance.now()) / REVEAL_MS))
+    : 1;
+  if (boardAlpha > 0)
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        drawBlock(ctx, c, r, board[r][c], BLOCK, boardAlpha);
 
   // ghost
   const gy = ghostY();
@@ -603,12 +731,17 @@ function drawHold() {
   drawPreview(holdCtx, holdCanvas, PIECES[held]);
 }
 
-function endGame() {
+function endGame(title = 'GAME OVER', win = false) {
   gameOver = true;
   cancelAnimationFrame(animId);
-  overlayTitle.textContent = 'GAME OVER';
-  overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+  overlayTitle.textContent = title;
+  overlayTitle.classList.toggle('win', win);
+  const time = isChallenge() ? ` · Tiempo ${formatTime(elapsed)}` : '';
+  overlayScore.textContent = `Puntuación: ${score.toLocaleString()}${time}`;
   overlay.classList.remove('hidden');
+  revealAll = true;
+  if (current) draw();
+  updateObjective();
 }
 
 function togglePause() {
@@ -620,6 +753,7 @@ function togglePause() {
   } else {
     cancelAnimationFrame(animId);
     overlayTitle.textContent = 'PAUSA';
+    overlayTitle.classList.remove('win');
     overlayScore.textContent = '';
     overlay.classList.remove('hidden');
   }
@@ -628,6 +762,10 @@ function togglePause() {
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
+  if (isChallenge()) {
+    tickChallenge(dt);
+    if (gameOver) return;
+  }
   if (freezeLeft > 0) {
     freezeLeft = Math.max(0, freezeLeft - dt);
     dropAccum = 0;
@@ -645,18 +783,26 @@ function loop(ts) {
     }
   }
   draw();
+  updateObjective();
   if (gameOver) return;
   animId = requestAnimationFrame(loop);
 }
 
 function init() {
-  board = createBoard();
+  const cfg = CHALLENGES[mode];
+  board = cfg && cfg.junkRows ? junkBoard(cfg.junkRows) : createBoard();
   score = 0;
   lines = 0;
-  level = 1;
+  levelBase = cfg && cfg.startLevel ? cfg.startLevel - 1 : 0;
+  level = 1 + levelBase;
   paused = false;
   gameOver = false;
-  dropInterval = 1000;
+  timeLeft = cfg ? cfg.timeLimit || cfg.surviveMs || 0 : 0;
+  elapsed = 0;
+  garbageAccum = 0;
+  revealUntil = 0;
+  revealAll = false;
+  dropInterval = intervalFor(level);
   dropAccum = 0;
   lastTime = performance.now();
   held = null;
@@ -676,6 +822,7 @@ function init() {
   spawn();
   updateHUD();
   overlay.classList.add('hidden');
+  overlayTitle.classList.remove('win');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
@@ -715,6 +862,13 @@ document.addEventListener('keydown', e => {
 });
 
 restartBtn.addEventListener('click', init);
+
+for (const btn of modeBtns) {
+  btn.addEventListener('click', () => {
+    setMode(btn.dataset.mode);
+    btn.blur(); // evita que Space/Enter reactiven el botón
+  });
+}
 
 // ---- Tema claro/oscuro (oscuro por defecto) ----
 const themeToggle = document.getElementById('theme-toggle');
