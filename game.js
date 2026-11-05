@@ -169,7 +169,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
 }
 
 function drawGrid() {
-  ctx.strokeStyle = '#22222e';
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -301,4 +301,29 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+// ---- Tema claro/oscuro (oscuro por defecto) ----
+const themeToggle = document.getElementById('theme-toggle');
+const themeText = document.getElementById('theme-toggle-text');
+
+function applyTheme(light) {
+  if (light) document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+  themeToggle.setAttribute('aria-checked', String(light));
+  themeText.textContent = light ? 'Modo oscuro' : 'Modo claro';
+  themeToggle.setAttribute('aria-label', themeText.textContent);
+  try { localStorage.setItem('theme', light ? 'light' : 'dark'); } catch (e) {}
+  // repintar también en pausa / game over
+  if (current) draw();
+  if (next) drawNext();
+}
+
+themeToggle.addEventListener('click', () => {
+  applyTheme(document.documentElement.getAttribute('data-theme') !== 'light');
+  themeToggle.blur(); // evita que Space/Enter reactiven el botón
+});
+
+let savedTheme = null;
+try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
+
 init();
+applyTheme(savedTheme === 'light');
