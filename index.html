@@ -37,6 +37,13 @@
           <p id="objective-desc" class="objective-desc"></p>
           <span id="objective-progress" class="objective-progress"></span>
         </div>
+
+        <div class="panel-section">
+          <span class="label">RECORDS · CLÁSICO</span>
+          <ol id="records-list" class="records-list"></ol>
+          <p id="records-stats" class="records-stats"></p>
+          <button id="reset-records" class="link-btn">Resetear records</button>
+        </div>
       </aside>
 
       <canvas id="board" width="300" height="600"></canvas>
@@ -89,6 +96,15 @@
       <div class="overlay-box">
         <p id="overlay-title">GAME OVER</p>
         <p id="overlay-score"></p>
+        <form id="record-form" class="record-form" hidden autocomplete="off">
+          <p id="record-msg"></p>
+          <div class="record-row">
+            <input id="record-name" type="text" maxlength="12" placeholder="Tu nombre" aria-label="Tu nombre" />
+            <button id="record-save" type="submit">Guardar</button>
+          </div>
+        </form>
+        <ol id="overlay-records" class="records-list"></ol>
+        <p id="overlay-stats" class="records-stats"></p>
         <button id="restart-btn">Reiniciar</button>
       </div>
     </div>
