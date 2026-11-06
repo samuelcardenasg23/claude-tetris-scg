@@ -262,6 +262,32 @@ kbd {
   transform: translateX(16px);
 }
 
+/* ---- Skins: fondo de los canvas ---- */
+[data-skin="neon"] {
+  --grid: #0c2a33;
+}
+
+[data-skin="neon"] #board,
+[data-skin="neon"] #next-canvas,
+[data-skin="neon"] #hold-canvas {
+  background: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+
+[data-skin="pastel"] #board,
+[data-skin="pastel"] #next-canvas,
+[data-skin="pastel"] #hold-canvas {
+  border-radius: 14px;
+}
+
+[data-skin="pixel"] #board,
+[data-skin="pixel"] #next-canvas,
+[data-skin="pixel"] #hold-canvas {
+  border-radius: 0;
+  border-width: 3px;
+}
+
 /* ---- Energía y habilidades ---- */
 .energy {
   height: 10px;
