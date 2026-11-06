@@ -4,7 +4,7 @@ const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
 
-const COLORS = [
+const BASE_COLORS = [
   null,
   '#4dd0e1', // I - cyan
   '#ffd54f', // O - yellow
@@ -26,6 +26,99 @@ const COLORS = [
   '#eceff1', // 18 comodín (resultado del tinte)
   '#607d8b', // 19 basura (modo desafío)
 ];
+
+// ---- Skins ----
+// Cada skin define su paleta (derivada de BASE_COLORS) y su función de dibujo de un bloque.
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixColor(hex, target, t) {
+  const a = hexToRgb(hex);
+  const mixed = a.map((v, i) => Math.round(v + (target[i] - v) * t));
+  return `rgb(${mixed[0]}, ${mixed[1]}, ${mixed[2]})`;
+}
+
+function mapColors(fn) {
+  return BASE_COLORS.map(c => (c ? fn(c) : null));
+}
+
+function roundedRectPath(context, x, y, w, h, r) {
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.arcTo(x + w, y, x + w, y + h, r);
+  context.arcTo(x + w, y + h, x, y + h, r);
+  context.arcTo(x, y + h, x, y, r);
+  context.arcTo(x, y, x + w, y, r);
+  context.closePath();
+}
+
+const SKINS = {
+  retro: {
+    colors: BASE_COLORS,
+    draw(context, px, py, size, color) {
+      context.fillStyle = color;
+      context.fillRect(px + 1, py + 1, size - 2, size - 2);
+      context.fillStyle = 'rgba(255,255,255,0.12)';
+      context.fillRect(px + 1, py + 1, size - 2, 4);
+    },
+  },
+  neon: {
+    colors: mapColors(c => mixColor(c, [255, 255, 255], 0.1)),
+    draw(context, px, py, size, color) {
+      const inset = 2;
+      const s = size - inset * 2;
+      context.save();
+      context.fillStyle = 'rgba(0,0,0,0.85)';
+      context.fillRect(px + inset, py + inset, s, s);
+      context.shadowColor = color;
+      context.shadowBlur = size * 0.45;
+      context.strokeStyle = color;
+      context.lineWidth = 2;
+      context.strokeRect(px + inset + 1, py + inset + 1, s - 2, s - 2);
+      context.shadowBlur = 0;
+      context.globalAlpha *= 0.35;
+      context.fillStyle = color;
+      context.fillRect(px + inset + 3, py + inset + 3, s - 6, s - 6);
+      context.restore();
+    },
+  },
+  pastel: {
+    colors: mapColors(c => mixColor(c, [255, 255, 255], 0.45)),
+    draw(context, px, py, size, color) {
+      const r = size * 0.3;
+      roundedRectPath(context, px + 1.5, py + 1.5, size - 3, size - 3, r);
+      context.fillStyle = color;
+      context.fill();
+      roundedRectPath(context, px + size * 0.2, py + size * 0.14, size * 0.6, size * 0.2, size * 0.1);
+      context.fillStyle = 'rgba(255,255,255,0.45)';
+      context.fill();
+    },
+  },
+  pixel: {
+    colors: BASE_COLORS,
+    draw(context, px, py, size, color) {
+      const p = Math.max(2, Math.round(size / 6)); // tamaño de "píxel" del patrón
+      context.fillStyle = color;
+      context.fillRect(px, py, size, size);
+      // textura de ajedrez
+      context.fillStyle = 'rgba(255,255,255,0.18)';
+      for (let i = 1; i < 5; i++)
+        for (let j = 1; j < 5; j++)
+          if ((i + j) % 2 === 0) context.fillRect(px + i * p, py + j * p, p, p);
+      // bisel claro arriba/izquierda y oscuro abajo/derecha
+      context.fillStyle = 'rgba(255,255,255,0.45)';
+      context.fillRect(px, py, size, p);
+      context.fillRect(px, py, p, size);
+      context.fillStyle = 'rgba(0,0,0,0.4)';
+      context.fillRect(px, py + size - p, size, p);
+      context.fillRect(px + size - p, py, p, size);
+    },
+  },
+};
+let skin = 'retro';
+let COLORS = SKINS.retro.colors;
 
 const PIECES = [
   null,
@@ -113,7 +206,158 @@ const objectiveSection = document.getElementById('objective-section');
 const objectiveDesc = document.getElementById('objective-desc');
 const objectiveProgress = document.getElementById('objective-progress');
 
-let held, holdUsed;
+const pauseMenu = document.getElementById('pause-menu');
+const pauseMain = document.getElementById('pause-main');
+const pauseControls = document.getElementById('pause-controls');
+const resumeBtn = document.getElementById('resume-btn');
+const pauseRestartBtn = document.getElementById('pause-restart-btn');
+const controlsBtn = document.getElementById('controls-btn');
+const controlsBackBtn = document.getElementById('controls-back-btn');
+const startLevelSel = document.getElementById('start-level');
+const MAX_START_LEVEL = 10;
+const RESUME_GUARD_MS = 250;   // tras reanudar se ignoran las teclas un instante
+let startLevel = 1;            // nivel con el que arranca la próxima partida clásica
+let inputBlockedUntil = 0;
+
+// ---- Tabla de records (localStorage, solo modo clásico) ----
+const RECORDS_KEY = 'tetris-records';
+const MAX_RECORDS = 5;
+const NAME_MAX = 12;
+const DEFAULT_NAME = 'Anónimo';
+const recordsListEl = document.getElementById('records-list');
+const recordsStatsEl = document.getElementById('records-stats');
+const resetRecordsBtn = document.getElementById('reset-records');
+const overlayRecordsEl = document.getElementById('overlay-records');
+const overlayStatsEl = document.getElementById('overlay-stats');
+const recordForm = document.getElementById('record-form');
+const recordMsg = document.getElementById('record-msg');
+const recordName = document.getElementById('record-name');
+
+function emptyRecords() {
+  return { scores: [], bestCombo: 0, maxLines: 0 };
+}
+
+function loadRecords() {
+  try {
+    const data = JSON.parse(localStorage.getItem(RECORDS_KEY));
+    if (!data || !Array.isArray(data.scores)) return emptyRecords();
+    return {
+      scores: data.scores
+        .filter(s => s && Number.isFinite(s.score))
+        .map(s => ({ id: s.id, name: String(s.name || DEFAULT_NAME).slice(0, NAME_MAX), score: s.score }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, MAX_RECORDS),
+      bestCombo: Number(data.bestCombo) || 0,
+      maxLines: Number(data.maxLines) || 0,
+    };
+  } catch (e) {
+    return emptyRecords();
+  }
+}
+
+function persistRecords() {
+  try { localStorage.setItem(RECORDS_KEY, JSON.stringify(records)); } catch (e) {}
+}
+
+let records = loadRecords();
+let pendingRecord = null; // { id, score } mientras el jugador no ha guardado su nombre
+
+// Posición (0-based) que ocuparía una puntuación en el top, o -1 si no entra
+function recordRank(sc) {
+  if (sc <= 0) return -1;
+  const idx = records.scores.findIndex(s => sc > s.score);
+  if (idx !== -1) return idx;
+  return records.scores.length < MAX_RECORDS ? records.scores.length : -1;
+}
+
+function fillRecordList(ol, highlightId) {
+  const rows = records.scores.map(s => ({ ...s }));
+  if (pendingRecord) {
+    const rank = recordRank(pendingRecord.score);
+    if (rank !== -1) rows.splice(rank, 0, { id: pendingRecord.id, name: recordName.value.trim() || 'Tú', score: pendingRecord.score });
+  }
+  ol.replaceChildren();
+  if (!rows.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'Sin records aún';
+    ol.append(li);
+    return;
+  }
+  rows.slice(0, MAX_RECORDS).forEach((s, i) => {
+    const li = document.createElement('li');
+    if (s.id === highlightId) li.className = 'highlight';
+    for (const [cls, text] of [['rank', i + 1], ['name', s.name], ['pts', s.score.toLocaleString()]]) {
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = text;
+      li.append(span);
+    }
+    ol.append(li);
+  });
+}
+
+function renderRecords(highlightId) {
+  const hl = pendingRecord ? pendingRecord.id : highlightId;
+  fillRecordList(recordsListEl, hl);
+  fillRecordList(overlayRecordsEl, hl);
+  const stats = `Mejor combo: x${records.bestCombo} · Máx. líneas: ${records.maxLines}`;
+  recordsStatsEl.textContent = stats;
+  overlayStatsEl.textContent = stats;
+}
+
+function commitRecord() {
+  if (!pendingRecord) return;
+  const entry = { id: pendingRecord.id, name: recordName.value.trim().slice(0, NAME_MAX) || DEFAULT_NAME, score: pendingRecord.score };
+  const rank = recordRank(entry.score);
+  pendingRecord = null;
+  recordForm.hidden = true;
+  recordName.value = '';
+  if (rank === -1) { renderRecords(); return; } // el top cambió (p. ej. tras resetear) y ya no entra
+  records.scores.splice(rank, 0, entry);
+  records.scores.length = Math.min(records.scores.length, MAX_RECORDS);
+  persistRecords();
+  renderRecords(entry.id);
+}
+
+function finishRecords() {
+  records.bestCombo = Math.max(records.bestCombo, maxCombo);
+  records.maxLines = Math.max(records.maxLines, lines);
+  persistRecords();
+  const rank = recordRank(score);
+  if (rank !== -1) {
+    pendingRecord = { id: Date.now(), score };
+    recordMsg.textContent = `¡Entras al top! Puesto #${rank + 1}`;
+    recordForm.hidden = false;
+    recordName.value = '';
+    renderRecords();
+    recordName.focus();
+  } else {
+    renderRecords();
+  }
+}
+
+let resetTimer = null;
+function resetRecords() {
+  if (!resetRecordsBtn.dataset.confirm) {
+    resetRecordsBtn.dataset.confirm = '1';
+    resetRecordsBtn.textContent = '¿Seguro? Pulsa otra vez';
+    resetTimer = setTimeout(cancelResetConfirm, 3000);
+    return;
+  }
+  cancelResetConfirm();
+  records = emptyRecords();
+  persistRecords();
+  renderRecords();
+}
+
+function cancelResetConfirm() {
+  clearTimeout(resetTimer);
+  delete resetRecordsBtn.dataset.confirm;
+  resetRecordsBtn.textContent = 'Resetear records';
+}
+
+let held, holdUsed, maxCombo;
 let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let powerPending, freezeLeft;
 let energy, queue, peekCount, slowLeft, undoSnap;
@@ -236,6 +480,7 @@ function clearLines(tspin, keepCombo) {
   }
 
   combo++;
+  maxCombo = Math.max(maxCombo, combo);
   const labels = [];
   const special = tspin || cleared === 4;
   let points = tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared];
@@ -600,11 +845,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
   const color = COLORS[colorIndex];
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  SKINS[skin].draw(context, x * size, y * size, size, color);
   const glyph = GLYPHS[colorIndex];
   if (glyph) {
     context.fillStyle = '#fff';
@@ -742,21 +983,35 @@ function endGame(title = 'GAME OVER', win = false) {
   revealAll = true;
   if (current) draw();
   updateObjective();
+  if (!isChallenge() && !pendingRecord) finishRecords();
+}
+
+function showPauseView(controls) {
+  pauseMain.hidden = controls;
+  pauseControls.hidden = !controls;
+  (controls ? controlsBackBtn : resumeBtn).focus();
 }
 
 function togglePause() {
   if (gameOver) return;
   paused = !paused;
   if (!paused) {
+    pauseMenu.classList.add('hidden');
+    if (document.activeElement) document.activeElement.blur();
+    inputBlockedUntil = performance.now() + RESUME_GUARD_MS;
     lastTime = performance.now();
     loop(lastTime);
   } else {
     cancelAnimationFrame(animId);
-    overlayTitle.textContent = 'PAUSA';
-    overlayTitle.classList.remove('win');
-    overlayScore.textContent = '';
-    overlay.classList.remove('hidden');
+    pauseMenu.classList.remove('hidden');
+    showPauseView(false);
   }
+}
+
+function startNewGame() {
+  init();
+  if (document.activeElement) document.activeElement.blur();
+  inputBlockedUntil = performance.now() + RESUME_GUARD_MS;
 }
 
 function loop(ts) {
@@ -789,11 +1044,14 @@ function loop(ts) {
 }
 
 function init() {
+  commitRecord(); // si el jugador no pulsó "Guardar", se guarda con lo que haya escrito
+  renderRecords(); // quita el resaltado de la partida anterior
+  maxCombo = 0;
   const cfg = CHALLENGES[mode];
   board = cfg && cfg.junkRows ? junkBoard(cfg.junkRows) : createBoard();
   score = 0;
   lines = 0;
-  levelBase = cfg && cfg.startLevel ? cfg.startLevel - 1 : 0;
+  levelBase = cfg ? (cfg.startLevel ? cfg.startLevel - 1 : 0) : startLevel - 1;
   level = 1 + levelBase;
   paused = false;
   gameOver = false;
@@ -823,13 +1081,20 @@ function init() {
   updateHUD();
   overlay.classList.add('hidden');
   overlayTitle.classList.remove('win');
+  pauseMenu.classList.add('hidden');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
-  if (e.code === 'KeyP') { togglePause(); return; }
-  if (paused || gameOver) return;
+  if (e.target instanceof HTMLInputElement) return; // escribiendo el nombre
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    e.preventDefault();
+    if (!e.repeat) togglePause();
+    return;
+  }
+  // menú abierto, partida terminada o recién reanudada: el juego ignora el teclado
+  if (paused || gameOver || performance.now() < inputBlockedUntil) return;
   switch (e.code) {
     case 'ArrowLeft':
       if (!collide(current.shape, current.x - 1, current.y)) { current.x--; lastMoveRotate = false; }
@@ -863,6 +1128,26 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+// ---- Menú de pausa ----
+for (let l = 1; l <= MAX_START_LEVEL; l++) startLevelSel.add(new Option(String(l), String(l)));
+startLevelSel.addEventListener('change', () => { startLevel = +startLevelSel.value; });
+resumeBtn.addEventListener('click', togglePause);
+pauseRestartBtn.addEventListener('click', startNewGame);
+controlsBtn.addEventListener('click', () => showPauseView(true));
+controlsBackBtn.addEventListener('click', () => showPauseView(false));
+
+recordForm.addEventListener('submit', e => {
+  e.preventDefault();
+  commitRecord();
+  restartBtn.focus();
+});
+recordName.addEventListener('input', () => renderRecords());
+resetRecordsBtn.addEventListener('click', () => {
+  resetRecords();
+  resetRecordsBtn.blur(); // evita que Space/Enter lo reactiven
+});
+window.addEventListener('pagehide', commitRecord);
+
 for (const btn of modeBtns) {
   btn.addEventListener('click', () => {
     setMode(btn.dataset.mode);
@@ -892,8 +1177,37 @@ themeToggle.addEventListener('click', () => {
   themeToggle.blur(); // evita que Space/Enter reactiven el botón
 });
 
-let savedTheme = null;
-try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
+// ---- Skins: cambio en caliente (nueva paleta + nueva función de dibujo) ----
+const skinBtns = document.querySelectorAll('[data-skin]');
 
+function applySkin(id, save = true) {
+  if (!SKINS[id]) id = 'retro';
+  skin = id;
+  COLORS = SKINS[id].colors;
+  document.documentElement.setAttribute('data-skin', id);
+  for (const btn of skinBtns) {
+    const active = btn.dataset.skin === id;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  if (save) { try { localStorage.setItem('skin', id); } catch (e) {} }
+  // repintar también en pausa / game over
+  if (current) { draw(); drawHold(); }
+  if (next) drawNext();
+}
+
+for (const btn of skinBtns) {
+  btn.addEventListener('click', () => {
+    applySkin(btn.dataset.skin);
+    btn.blur(); // evita que Space/Enter reactiven el botón
+  });
+}
+
+let savedTheme = null;
+let savedSkin = null;
+try { savedTheme = localStorage.getItem('theme'); savedSkin = localStorage.getItem('skin'); } catch (e) {}
+
+renderRecords();
 init();
 applyTheme(savedTheme === 'light');
+applySkin(savedSkin || 'retro', false);

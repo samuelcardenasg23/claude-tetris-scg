@@ -262,6 +262,32 @@ kbd {
   transform: translateX(16px);
 }
 
+/* ---- Skins: fondo de los canvas ---- */
+[data-skin="neon"] {
+  --grid: #0c2a33;
+}
+
+[data-skin="neon"] #board,
+[data-skin="neon"] #next-canvas,
+[data-skin="neon"] #hold-canvas {
+  background: #000;
+  border-color: var(--accent);
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+
+[data-skin="pastel"] #board,
+[data-skin="pastel"] #next-canvas,
+[data-skin="pastel"] #hold-canvas {
+  border-radius: 14px;
+}
+
+[data-skin="pixel"] #board,
+[data-skin="pixel"] #next-canvas,
+[data-skin="pixel"] #hold-canvas {
+  border-radius: 0;
+  border-width: 3px;
+}
+
 /* ---- Energía y habilidades ---- */
 .energy {
   height: 10px;
@@ -341,6 +367,194 @@ kbd {
   color: var(--accent);
 }
 
+/* ---- Menú de pausa ---- */
+.overlay[hidden], .pause-pane[hidden] {
+  display: none;
+}
+
+.pause-box {
+  width: 220px;
+}
+
+#pause-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--accent);
+}
+
+.pause-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.menu-btn {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.menu-btn:hover,
+.menu-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.menu-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--btn-text);
+}
+
+.level-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.level-select select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.menu-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.menu-controls {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+}
+
+.menu-controls li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-controls li span {
+  min-width: 80px;
+  display: inline-flex;
+  gap: 3px;
+}
+
 #overlay-title.win {
   color: var(--accent);
+}
+
+/* ---- Tabla de records ---- */
+.records-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 150px;
+}
+
+.records-list li {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.records-list .rank { color: var(--label); width: 12px; }
+.records-list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.records-list .pts { font-family: 'Courier New', Courier, monospace; color: var(--text); }
+.records-list .empty { font-style: italic; }
+
+.records-list li.highlight {
+  background: var(--accent);
+  color: var(--btn-text);
+  font-weight: 700;
+}
+
+.records-list li.highlight .rank,
+.records-list li.highlight .pts { color: var(--btn-text); }
+
+.records-stats {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.link-btn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11px;
+  color: var(--label);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover { color: var(--danger); }
+
+.record-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.record-form[hidden] { display: none; }
+
+#record-msg {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.record-row { display: flex; gap: 6px; }
+
+#record-name {
+  width: 130px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  user-select: text;
+}
+
+#record-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#record-save {
+  background: var(--accent);
+  color: var(--btn-text);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
