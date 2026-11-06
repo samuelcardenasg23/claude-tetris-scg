@@ -118,6 +118,7 @@ let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let powerPending, freezeLeft;
 let energy, queue, peekCount, slowLeft, undoSnap;
 let mode = 'classic';
+let startLevel = 1; // nivel inicial elegido en el menú de pausa (próxima partida)
 let levelBase, timeLeft, elapsed, garbageAccum, revealUntil, revealAll;
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 
@@ -748,14 +749,13 @@ function togglePause() {
   if (gameOver) return;
   paused = !paused;
   if (!paused) {
+    hidePauseMenu();
     lastTime = performance.now();
+    dropAccum = 0;
     loop(lastTime);
   } else {
     cancelAnimationFrame(animId);
-    overlayTitle.textContent = 'PAUSA';
-    overlayTitle.classList.remove('win');
-    overlayScore.textContent = '';
-    overlay.classList.remove('hidden');
+    showPauseMenu();
   }
 }
 
@@ -793,7 +793,7 @@ function init() {
   board = cfg && cfg.junkRows ? junkBoard(cfg.junkRows) : createBoard();
   score = 0;
   lines = 0;
-  levelBase = cfg && cfg.startLevel ? cfg.startLevel - 1 : 0;
+  levelBase = cfg?.startLevel ? cfg.startLevel - 1 : startLevel - 1;
   level = 1 + levelBase;
   paused = false;
   gameOver = false;
@@ -822,13 +822,16 @@ function init() {
   spawn();
   updateHUD();
   overlay.classList.add('hidden');
+  hidePauseMenu();
   overlayTitle.classList.remove('win');
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
-  if (e.code === 'KeyP') { togglePause(); return; }
+  if (swallowHeld && e.repeat) return; // tecla que seguía pulsada al reanudar
+  if (e.code === 'KeyP' || e.code === 'Escape') { if (!e.repeat) togglePause(); return; }
+  if (paused && pauseMenuKey(e)) return;
   if (paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
@@ -869,6 +872,65 @@ for (const btn of modeBtns) {
     btn.blur(); // evita que Space/Enter reactiven el botón
   });
 }
+
+// ---- Menú de pausa ----
+const pauseMenu = document.getElementById('pause-menu');
+const resumeBtn = document.getElementById('resume-btn');
+const pauseRestartBtn = document.getElementById('pause-restart-btn');
+const controlsBtn = document.getElementById('controls-btn');
+const pauseControls = document.getElementById('pause-controls');
+const startLevelSel = document.getElementById('start-level');
+let swallowHeld = false; // descarta keydown repetidos hasta el primer keyup tras reanudar
+
+try {
+  const saved = parseInt(localStorage.getItem('startLevel'), 10);
+  if (saved >= 1 && saved <= 10) startLevel = saved;
+} catch (e) {}
+startLevelSel.value = String(startLevel);
+
+function showPauseMenu() {
+  pauseControls.hidden = true;
+  controlsBtn.setAttribute('aria-expanded', 'false');
+  pauseMenu.classList.remove('hidden');
+  resumeBtn.focus();
+}
+
+function hidePauseMenu() {
+  if (pauseMenu.classList.contains('hidden')) return;
+  pauseMenu.classList.add('hidden');
+  if (pauseMenu.contains(document.activeElement)) document.activeElement.blur();
+  swallowHeld = true;
+}
+
+// Navegación con flechas entre los elementos del menú; true si la tecla se consumió.
+function pauseMenuKey(e) {
+  if (e.code !== 'ArrowDown' && e.code !== 'ArrowUp') return false;
+  if (document.activeElement === startLevelSel) return false; // el select usa las flechas
+  const items = [resumeBtn, pauseRestartBtn, controlsBtn, startLevelSel];
+  const i = items.indexOf(document.activeElement);
+  const step = e.code === 'ArrowDown' ? 1 : -1;
+  items[(i + step + items.length) % items.length].focus();
+  e.preventDefault();
+  return true;
+}
+
+document.addEventListener('keyup', () => { swallowHeld = false; });
+
+resumeBtn.addEventListener('click', () => { resumeBtn.blur(); togglePause(); });
+pauseRestartBtn.addEventListener('click', () => {
+  pauseRestartBtn.blur();
+  init();
+});
+controlsBtn.addEventListener('click', () => {
+  pauseControls.hidden = !pauseControls.hidden;
+  controlsBtn.setAttribute('aria-expanded', String(!pauseControls.hidden));
+  controlsBtn.blur();
+});
+startLevelSel.addEventListener('change', () => {
+  startLevel = parseInt(startLevelSel.value, 10) || 1;
+  try { localStorage.setItem('startLevel', String(startLevel)); } catch (e) {}
+  startLevelSel.blur();
+});
 
 // ---- Tema claro/oscuro (oscuro por defecto) ----
 const themeToggle = document.getElementById('theme-toggle');

@@ -95,7 +95,9 @@ Después abre `http://localhost:8000` en el navegador.
 | `2` | Habilidad: cambiar la pieza actual (30) |
 | `3` | Habilidad: ralentizar la caída 10 s (40) |
 | `4` | Habilidad: deshacer la última colocación (50) |
-| `P`       | Pausar / reanudar                 |
+| `P` / `Esc` | Abrir / cerrar el menú de pausa |
+
+El menú de pausa ofrece **Reanudar**, **Reiniciar** (sin recargar), **Ver controles** y **Nivel inicial** (1-10, se guarda y se aplica a la próxima partida). Con el menú abierto el juego ignora el resto de teclas.
 
 La energía sube +10 por línea limpiada. Las habilidades solo están disponibles en el modo Clásico.
 
@@ -126,7 +128,7 @@ Define la estructura visual:
 
 - Un `<canvas id="board">` de **300 × 600** píxeles donde se renderiza el tablero.
 - Un panel derecho con `SCORE`, `LINES`, `LEVEL`, energía, vista de la siguiente pieza y la lista de controles, y un panel izquierdo con `HOLD`, el selector de modo y el objetivo del desafío.
-- Un overlay para los estados **PAUSA** y **GAME OVER**.
+- Un overlay de **GAME OVER** y un menú de pausa propio.
 
 ### 2. `style.css`
 
