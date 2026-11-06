@@ -4,7 +4,7 @@ const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
 
-const COLORS = [
+const BASE_COLORS = [
   null,
   '#4dd0e1', // I - cyan
   '#ffd54f', // O - yellow
@@ -26,6 +26,99 @@ const COLORS = [
   '#eceff1', // 18 comodín (resultado del tinte)
   '#607d8b', // 19 basura (modo desafío)
 ];
+
+// ---- Skins ----
+// Cada skin define su paleta (derivada de BASE_COLORS) y su función de dibujo de un bloque.
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixColor(hex, target, t) {
+  const a = hexToRgb(hex);
+  const mixed = a.map((v, i) => Math.round(v + (target[i] - v) * t));
+  return `rgb(${mixed[0]}, ${mixed[1]}, ${mixed[2]})`;
+}
+
+function mapColors(fn) {
+  return BASE_COLORS.map(c => (c ? fn(c) : null));
+}
+
+function roundedRectPath(context, x, y, w, h, r) {
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.arcTo(x + w, y, x + w, y + h, r);
+  context.arcTo(x + w, y + h, x, y + h, r);
+  context.arcTo(x, y + h, x, y, r);
+  context.arcTo(x, y, x + w, y, r);
+  context.closePath();
+}
+
+const SKINS = {
+  retro: {
+    colors: BASE_COLORS,
+    draw(context, px, py, size, color) {
+      context.fillStyle = color;
+      context.fillRect(px + 1, py + 1, size - 2, size - 2);
+      context.fillStyle = 'rgba(255,255,255,0.12)';
+      context.fillRect(px + 1, py + 1, size - 2, 4);
+    },
+  },
+  neon: {
+    colors: mapColors(c => mixColor(c, [255, 255, 255], 0.1)),
+    draw(context, px, py, size, color) {
+      const inset = 2;
+      const s = size - inset * 2;
+      context.save();
+      context.fillStyle = 'rgba(0,0,0,0.85)';
+      context.fillRect(px + inset, py + inset, s, s);
+      context.shadowColor = color;
+      context.shadowBlur = size * 0.45;
+      context.strokeStyle = color;
+      context.lineWidth = 2;
+      context.strokeRect(px + inset + 1, py + inset + 1, s - 2, s - 2);
+      context.shadowBlur = 0;
+      context.globalAlpha *= 0.35;
+      context.fillStyle = color;
+      context.fillRect(px + inset + 3, py + inset + 3, s - 6, s - 6);
+      context.restore();
+    },
+  },
+  pastel: {
+    colors: mapColors(c => mixColor(c, [255, 255, 255], 0.45)),
+    draw(context, px, py, size, color) {
+      const r = size * 0.3;
+      roundedRectPath(context, px + 1.5, py + 1.5, size - 3, size - 3, r);
+      context.fillStyle = color;
+      context.fill();
+      roundedRectPath(context, px + size * 0.2, py + size * 0.14, size * 0.6, size * 0.2, size * 0.1);
+      context.fillStyle = 'rgba(255,255,255,0.45)';
+      context.fill();
+    },
+  },
+  pixel: {
+    colors: BASE_COLORS,
+    draw(context, px, py, size, color) {
+      const p = Math.max(2, Math.round(size / 6)); // tamaño de "píxel" del patrón
+      context.fillStyle = color;
+      context.fillRect(px, py, size, size);
+      // textura de ajedrez
+      context.fillStyle = 'rgba(255,255,255,0.18)';
+      for (let i = 1; i < 5; i++)
+        for (let j = 1; j < 5; j++)
+          if ((i + j) % 2 === 0) context.fillRect(px + i * p, py + j * p, p, p);
+      // bisel claro arriba/izquierda y oscuro abajo/derecha
+      context.fillStyle = 'rgba(255,255,255,0.45)';
+      context.fillRect(px, py, size, p);
+      context.fillRect(px, py, p, size);
+      context.fillStyle = 'rgba(0,0,0,0.4)';
+      context.fillRect(px, py + size - p, size, p);
+      context.fillRect(px + size - p, py, p, size);
+    },
+  },
+};
+let skin = 'retro';
+let COLORS = SKINS.retro.colors;
 
 const PIECES = [
   null,
@@ -600,11 +693,7 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
   const color = COLORS[colorIndex];
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  SKINS[skin].draw(context, x * size, y * size, size, color);
   const glyph = GLYPHS[colorIndex];
   if (glyph) {
     context.fillStyle = '#fff';
@@ -892,8 +981,36 @@ themeToggle.addEventListener('click', () => {
   themeToggle.blur(); // evita que Space/Enter reactiven el botón
 });
 
+// ---- Skins: cambio en caliente (nueva paleta + nueva función de dibujo) ----
+const skinBtns = document.querySelectorAll('[data-skin]');
+
+function applySkin(id, save = true) {
+  if (!SKINS[id]) id = 'retro';
+  skin = id;
+  COLORS = SKINS[id].colors;
+  document.documentElement.setAttribute('data-skin', id);
+  for (const btn of skinBtns) {
+    const active = btn.dataset.skin === id;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  if (save) { try { localStorage.setItem('skin', id); } catch (e) {} }
+  // repintar también en pausa / game over
+  if (current) { draw(); drawHold(); }
+  if (next) drawNext();
+}
+
+for (const btn of skinBtns) {
+  btn.addEventListener('click', () => {
+    applySkin(btn.dataset.skin);
+    btn.blur(); // evita que Space/Enter reactiven el botón
+  });
+}
+
 let savedTheme = null;
-try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
+let savedSkin = null;
+try { savedTheme = localStorage.getItem('theme'); savedSkin = localStorage.getItem('skin'); } catch (e) {}
 
 init();
 applyTheme(savedTheme === 'light');
+applySkin(savedSkin || 'retro', false);
