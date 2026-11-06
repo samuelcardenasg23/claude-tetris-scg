@@ -344,3 +344,33 @@ kbd {
 #overlay-title.win {
   color: var(--accent);
 }
+
+/* ---- Records ---- */
+.records-box { font-size: 13px; color: var(--text); min-width: 240px; }
+.records-table { width: 100%; border-collapse: collapse; font-family: 'Courier New', Courier, monospace; }
+.records-table th, .records-table td { padding: 3px 8px; text-align: left; }
+.records-table th { color: var(--accent); font-size: 11px; letter-spacing: 1px; }
+.records-table tr.highlight td { background: var(--accent-glow); color: var(--accent); font-weight: 700; }
+.records-stats { margin-top: 6px; font-size: 12px; opacity: 0.85; }
+.records-note { opacity: 0.8; }
+.records-empty { opacity: 0.7; padding: 6px 0; }
+.name-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }
+.name-row input {
+  width: 130px; padding: 6px 8px; border-radius: 6px; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.name-row button, .primary-btn {
+  background: var(--accent); color: var(--btn-text); border: none; border-radius: 6px;
+  padding: 8px 18px; font-size: 14px; font-weight: 700; cursor: pointer; letter-spacing: 1px;
+}
+.name-row button:hover, .primary-btn:hover { background: var(--accent-hover); }
+.start-screen {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center;
+  justify-content: center; background: var(--bg); overflow: auto;
+}
+.start-screen.hidden { display: none; }
+.start-box { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.start-title { font-size: 48px; font-weight: 800; letter-spacing: 8px; color: var(--accent); }
+.link-btn { background: none; border: none; color: var(--text); opacity: 0.7; cursor: pointer; font-size: 12px; text-decoration: underline; }
+.link-btn:hover { opacity: 1; }
+.clear-confirm { font-size: 12px; }

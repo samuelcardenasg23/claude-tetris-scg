@@ -114,6 +114,10 @@ Se eligen en el panel izquierdo (cambiar de modo reinicia la partida). Los desaf
 | Invisibles | Las piezas se vuelven invisibles al tocar suelo; limpia 15 líneas |
 | Rotación inversa | Empieza en el nivel 5, donde la rotación gira al revés; limpia 20 líneas |
 
+### Records
+
+Al cargar aparece una pantalla de inicio con el top 5 local (guardado en `localStorage`), el mejor combo y las líneas máximas, con botones **Jugar** y **Borrar records** (con confirmación inline). Al terminar una partida en modo clásico, si la puntuación entra en el top 5 puedes escribir tu nombre (máx. 12 caracteres) y guardarlo. Los desafíos no guardan records.
+
 ---
 
 ## Cómo funciona

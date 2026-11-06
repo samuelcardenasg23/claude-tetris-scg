@@ -114,6 +114,7 @@ const objectiveDesc = document.getElementById('objective-desc');
 const objectiveProgress = document.getElementById('objective-progress');
 
 let held, holdUsed;
+let maxCombo, startPending = false;
 let combo, backToBack, lastMoveRotate, effect, audioCtx;
 let powerPending, freezeLeft;
 let energy, queue, peekCount, slowLeft, undoSnap;
@@ -236,6 +237,7 @@ function clearLines(tspin, keepCombo) {
   }
 
   combo++;
+  if (combo > maxCombo) maxCombo = combo;
   const labels = [];
   const special = tspin || cleared === 4;
   let points = tspin ? TSPIN_SCORES[cleared] : LINE_SCORES[cleared];
@@ -574,6 +576,7 @@ function updateObjective() {
 }
 
 function setMode(id) {
+  if (startPending) return;
   mode = id;
   for (const btn of modeBtns) {
     const active = btn.dataset.mode === id;
@@ -732,6 +735,7 @@ function drawHold() {
 }
 
 function endGame(title = 'GAME OVER', win = false) {
+  if (gameOver) return;
   gameOver = true;
   cancelAnimationFrame(animId);
   overlayTitle.textContent = title;
@@ -740,6 +744,7 @@ function endGame(title = 'GAME OVER', win = false) {
   overlayScore.textContent = `Puntuación: ${score.toLocaleString()}${time}`;
   overlay.classList.remove('hidden');
   revealAll = true;
+  showGameOverRecords();
   if (current) draw();
   updateObjective();
 }
@@ -814,6 +819,7 @@ function init() {
   undoSnap = null;
   queue = [];
   combo = 0;
+  maxCombo = 0;
   backToBack = false;
   lastMoveRotate = false;
   effect = null;
@@ -828,6 +834,7 @@ function init() {
 }
 
 document.addEventListener('keydown', e => {
+  if (startPending || (e.target && e.target.tagName === 'INPUT')) return;
   if (e.code === 'KeyP') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -861,7 +868,7 @@ document.addEventListener('keydown', e => {
   updateHUD();
 });
 
-restartBtn.addEventListener('click', init);
+restartBtn.addEventListener('click', () => { init(); restartBtn.blur(); });
 
 for (const btn of modeBtns) {
   btn.addEventListener('click', () => {
@@ -895,5 +902,133 @@ themeToggle.addEventListener('click', () => {
 let savedTheme = null;
 try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
 
+// ---- Records ----
+const startScreen = document.getElementById('start-screen');
+const startRecords = document.getElementById('start-records');
+const recordsBox = document.getElementById('records-box');
+const MAX_RECORDS = 5;
+const NAME_MAX = 12;
+
+function loadRecords() {
+  const empty = { top: [], bestCombo: 0, maxLines: 0 };
+  try {
+    const r = JSON.parse(localStorage.getItem('records'));
+    if (!r || !Array.isArray(r.top)) return empty;
+    const top = r.top.filter(e => e && typeof e.name === 'string' && Number.isFinite(e.score))
+      .sort((a, b) => b.score - a.score);
+    return { top: top.slice(0, MAX_RECORDS), bestCombo: r.bestCombo | 0, maxLines: r.maxLines | 0 };
+  } catch (e) { return empty; }
+}
+
+function saveRecords(r) {
+  try { localStorage.setItem('records', JSON.stringify(r)); } catch (e) {}
+}
+
+function renderRecords(container, highlight = -1) {
+  const r = loadRecords();
+  container.textContent = '';
+  if (!r.top.length) {
+    const p = document.createElement('p');
+    p.className = 'records-empty';
+    p.textContent = 'Aún no hay records';
+    container.appendChild(p);
+  } else {
+    const t = document.createElement('table');
+    t.className = 'records-table';
+    const head = t.insertRow();
+    for (const h of ['#', 'Nombre', 'Puntos', 'Líneas']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      head.appendChild(th);
+    }
+    r.top.forEach((e, i) => {
+      const row = t.insertRow();
+      if (i === highlight) row.className = 'highlight';
+      [i + 1, e.name, Number(e.score).toLocaleString(), e.lines].forEach(v => {
+        row.insertCell().textContent = v;
+      });
+    });
+    container.appendChild(t);
+  }
+  const s = document.createElement('p');
+  s.className = 'records-stats';
+  s.textContent = `Mejor combo: ${r.bestCombo} · Líneas máximas: ${r.maxLines}`;
+  container.appendChild(s);
+}
+
+function showGameOverRecords() {
+  recordsBox.textContent = '';
+  if (isChallenge()) {
+    const p = document.createElement('p');
+    p.className = 'records-note';
+    p.textContent = 'Records solo en modo clásico';
+    recordsBox.appendChild(p);
+    return;
+  }
+  const r = loadRecords();
+  const qualifies = score > 0 && (r.top.length < MAX_RECORDS || score > r.top[r.top.length - 1].score);
+  r.bestCombo = Math.max(r.bestCombo, maxCombo);
+  r.maxLines = Math.max(r.maxLines, lines);
+  saveRecords(r);
+  renderRecords(recordsBox);
+  if (!qualifies) return;
+  const row = document.createElement('div');
+  row.className = 'name-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = NAME_MAX;
+  input.value = 'Jugador';
+  input.setAttribute('aria-label', 'Nombre');
+  const btn = document.createElement('button');
+  btn.textContent = 'Guardar';
+  const save = () => {
+    const cur = loadRecords();
+    const entry = {
+      name: input.value.trim().slice(0, NAME_MAX) || 'Jugador',
+      score, lines, date: new Date().toISOString().slice(0, 10)
+    };
+    cur.top.push(entry);
+    cur.top.sort((a, b) => b.score - a.score);
+    const idx = cur.top.indexOf(entry);
+    cur.top = cur.top.slice(0, MAX_RECORDS);
+    saveRecords(cur);
+    renderRecords(recordsBox, idx);
+    startRecords.textContent = '';
+    renderRecords(startRecords);
+    row.remove();
+    restartBtn.blur();
+  };
+  btn.addEventListener('click', save);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+  row.append(input, btn);
+  recordsBox.prepend(row);
+  input.focus();
+  input.select();
+}
+
+const clearBtn = document.getElementById('clear-records-btn');
+const clearConfirm = document.getElementById('clear-confirm');
+function setClearConfirm(on) {
+  clearConfirm.hidden = !on;
+  clearBtn.hidden = on;
+}
+clearBtn.addEventListener('click', () => { setClearConfirm(true); clearBtn.blur(); });
+document.getElementById('clear-no').addEventListener('click', e => { setClearConfirm(false); e.target.blur(); });
+document.getElementById('clear-yes').addEventListener('click', e => {
+  try { localStorage.removeItem('records'); } catch (err) {}
+  renderRecords(startRecords);
+  setClearConfirm(false);
+  e.target.blur();
+});
+document.getElementById('play-btn').addEventListener('click', e => {
+  e.target.blur();
+  startPending = false;
+  startScreen.classList.add('hidden');
+  init();
+});
+
 init();
+cancelAnimationFrame(animId); // la partida no corre hasta pulsar Jugar
+startPending = true;
+renderRecords(startRecords);
 applyTheme(savedTheme === 'light');
