@@ -4,7 +4,7 @@ const COLS = 10;
 const ROWS = 20;
 const BLOCK = 30;
 
-const COLORS = [
+let COLORS = [
   null,
   '#4dd0e1', // I - cyan
   '#ffd54f', // O - yellow
@@ -109,6 +109,7 @@ const energyEl = document.getElementById('energy');
 const energyFill = document.getElementById('energy-fill');
 const skillEls = document.querySelectorAll('[data-skill]');
 const modeBtns = document.querySelectorAll('[data-mode]');
+const skinBtns = document.querySelectorAll('[data-skin]');
 const objectiveSection = document.getElementById('objective-section');
 const objectiveDesc = document.getElementById('objective-desc');
 const objectiveProgress = document.getElementById('objective-progress');
@@ -596,28 +597,138 @@ function updateHUD() {
   }
 }
 
+// ---- Skins ----
+// Cada skin: colors (paralelo a COLORS), bg (fondo del tablero o null = transparente),
+// grid (color de la cuadrícula o null = el del tema) y block(ctx, px, py, size, color, colorIndex),
+// que rellena el cuadrado (px,py,size) ya con el margen de 1px aplicado.
+function roundedPath(c, x, y, w, h, r) {
+  c.beginPath();
+  if (c.roundRect) { c.roundRect(x, y, w, h, r); return; }
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+const SKINS = {
+  retro: {
+    colors: COLORS.slice(),
+    bg: null,
+    grid: null,
+    block(c, px, py, size, color) {
+      c.fillStyle = color;
+      c.fillRect(px, py, size, size);
+      c.fillStyle = 'rgba(255,255,255,0.12)';
+      c.fillRect(px, py, size, 4);
+    },
+  },
+  neon: {
+    colors: [null, '#00e5ff', '#ffee00', '#d500f9', '#00ff6a', '#ff1744', '#448aff', '#ff9100', '#ff4081',
+      '#c6a15b', '#b2ebf2', '#ff6e40', '#1de9b6', '#ff5252', '#ffff00', '#b388ff', '#536dfe', '#40c4ff',
+      '#ffffff', '#78909c'],
+    bg: '#000',
+    grid: 'rgba(0,229,255,0.12)',
+    block(c, px, py, size, color) {
+      c.shadowColor = color;
+      c.shadowBlur = 10;
+      c.fillStyle = 'rgba(0,0,0,0.85)';
+      c.fillRect(px + 1, py + 1, size - 2, size - 2);
+      c.strokeStyle = color;
+      c.lineWidth = 2;
+      c.strokeRect(px + 2, py + 2, size - 4, size - 4);
+      c.shadowBlur = 0;
+      c.globalAlpha *= 0.35;
+      c.fillStyle = color;
+      c.fillRect(px + 4, py + 4, size - 8, size - 8);
+    },
+  },
+  pastel: {
+    colors: [null, '#a8e6ef', '#fff1b8', '#d9b8e6', '#bfe6c1', '#f5b7b7', '#bcd8f5', '#ffd9a8', '#f7b6cf',
+      '#d3c0b8', '#cfd8dc', '#ffbfa8', '#9ed9d1', '#ef9a9a', '#fff59d', '#c5b3e6', '#aab4e6', '#b3e5fc',
+      '#f5f7f8', '#b0bec5'],
+    bg: null,
+    grid: null,
+    block(c, px, py, size, color) {
+      roundedPath(c, px, py, size, size, size * 0.3);
+      c.fillStyle = color;
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.7)';
+      c.lineWidth = 1.5;
+      roundedPath(c, px + 1.5, py + 1.5, size - 3, size - 3, size * 0.25);
+      c.stroke();
+    },
+  },
+  pixel: {
+    colors: [null, '#29b6f6', '#fbc02d', '#8e24aa', '#43a047', '#e53935', '#1e88e5', '#fb8c00', '#d81b60',
+      '#795548', '#78909c', '#f4511e', '#00897b', '#b71c1c', '#f9a825', '#5e35b1', '#3949ab', '#0288d1',
+      '#cfd8dc', '#455a64'],
+    bg: null,
+    grid: null,
+    block(c, px, py, size, color) {
+      c.fillStyle = color;
+      c.fillRect(px, py, size, size);
+      // textura 4x4 de "píxeles" claros y oscuros
+      const n = 4, t = size / n;
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const k = (i * 3 + j * 5) % 4;
+          if (k === 0) c.fillStyle = 'rgba(255,255,255,0.28)';
+          else if (k === 2) c.fillStyle = 'rgba(0,0,0,0.22)';
+          else continue;
+          c.fillRect(px + j * t, py + i * t, t, t);
+        }
+      }
+      c.strokeStyle = 'rgba(0,0,0,0.45)';
+      c.lineWidth = 1;
+      c.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+    },
+  },
+};
+
+let skinId = 'retro';
+
+function applySkin(id) {
+  if (!SKINS[id]) id = 'retro';
+  skinId = id;
+  COLORS = SKINS[id].colors;
+  document.documentElement.setAttribute('data-skin', id);
+  for (const b of skinBtns) {
+    const on = b.dataset.skin === id;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  try { localStorage.setItem('skin', id); } catch (e) {}
+  // repintar también en pausa / game over
+  if (current) draw();
+  if (next) drawNext();
+  if (current) drawHold();
+}
+
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
   const color = COLORS[colorIndex];
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  context.save();
+  SKINS[skinId].block(context, x * size + 1, y * size + 1, size - 2, color, colorIndex);
+  context.restore();
   const glyph = GLYPHS[colorIndex];
   if (glyph) {
     context.fillStyle = '#fff';
     context.font = `${Math.floor(size * 0.6)}px system-ui, sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
+    context.strokeStyle = 'rgba(0,0,0,0.55)';
+    context.lineWidth = 2;
+    context.strokeText(glyph, x * size + size / 2, y * size + size / 2 + 1);
     context.fillText(glyph, x * size + size / 2, y * size + size / 2 + 1);
   }
   context.globalAlpha = 1;
 }
 
 function drawGrid() {
-  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
+  ctx.strokeStyle = SKINS[skinId].grid || getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
   ctx.lineWidth = 0.5;
   for (let c = 1; c < COLS; c++) {
     ctx.beginPath();
@@ -635,6 +746,10 @@ function drawGrid() {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (SKINS[skinId].bg) {
+    ctx.fillStyle = SKINS[skinId].bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   drawGrid();
 
   // board
@@ -892,8 +1007,19 @@ themeToggle.addEventListener('click', () => {
   themeToggle.blur(); // evita que Space/Enter reactiven el botón
 });
 
+for (const btn of skinBtns) {
+  btn.addEventListener('click', () => {
+    applySkin(btn.dataset.skin);
+    btn.blur(); // evita que Space/Enter reactiven el botón
+  });
+}
+
+let savedSkin = null;
+try { savedSkin = localStorage.getItem('skin'); } catch (e) {}
+
 let savedTheme = null;
 try { savedTheme = localStorage.getItem('theme'); } catch (e) {}
 
+applySkin(savedSkin);
 init();
 applyTheme(savedTheme === 'light');

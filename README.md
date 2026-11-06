@@ -47,6 +47,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Piezas especiales**: pentominós (`+`, `U`, `Y`), anillo 3×3 hueco y una pieza `1×1` de recompensa tras un Tetris.
 - **Power-ups** cada 10 líneas: bomba, rayo, tinte, gravedad y congelar.
 - **Habilidades cargables** con una barra de energía (ver siguientes 5, cambiar pieza, ralentizar, deshacer).
+- **Skins**: Retro, Neón, Pastel y Pixel art, elegibles desde el panel izquierdo (se recuerdan entre sesiones y conviven con el modo claro/oscuro).
 - **Modo desafío** con 5 desafíos independientes (ver [Modos de juego](#modos-de-juego)).
 
 ---
